@@ -1,0 +1,8 @@
+.env
+backups/*.dump
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+plan.txt
+crash.log
