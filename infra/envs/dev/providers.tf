@@ -20,9 +20,12 @@ provider "aws" {
     }
   }
 
-  # Plan-only friendly: no live AWS account is needed for `terraform plan -refresh=false`.
-  # Remove these three lines when deploying for real with valid credentials.
-  skip_credentials_validation = true
-  skip_requesting_account_id  = true
-  skip_metadata_api_check     = true
+  # Plan-only review (plan_only = true): dummy credentials and no AWS API calls, so
+  # `terraform plan -refresh=false` works without an AWS account. Set plan_only = false to deploy:
+  # credentials then come from the normal AWS chain (env vars, profile, OIDC role).
+  access_key                  = var.plan_only ? "dummy" : null
+  secret_key                  = var.plan_only ? "dummy" : null
+  skip_credentials_validation = var.plan_only
+  skip_requesting_account_id  = var.plan_only
+  skip_metadata_api_check     = var.plan_only
 }

@@ -13,7 +13,7 @@ database with migrations, seed data, an optimized query, and backup/restore scri
 ├── scripts/                      # backup.sh, restore.sh, verify_restore.sh, seed.sh, explain.sh
 ├── infra/
 │   ├── modules/{network,ecs,rds}
-│   └── envs/{dev,prod}           # each: main/variables/providers/backend/outputs + terraform.tfvars
+│   └── envs/{dev,prod}           # each: main/variables/providers/backend/outputs + terraform.tfvars + backend_override.tf
 └── .github/workflows/terraform-plan.yml
 ```
 
@@ -63,37 +63,37 @@ Key decisions:
 Each environment has its own `variables.tf`, `terraform.tfvars`, `backend.tf` (S3 state + DynamoDB lock),
 and `providers.tf`.
 
-### Review commands (no AWS account needed)
+### Review commands (no AWS account or credentials needed)
+
+The commands from the assessment work as-is, in each environment:
 
 ```bash
-cd infra
-terraform fmt -check -recursive
-
-cd envs/dev          # repeat for envs/prod
-# plan-only: swap the S3 backend for a local one (file is git-ignored)
-printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+cd infra/envs/dev          # repeat for infra/envs/prod
+terraform fmt
 terraform init
 terraform validate
-AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy terraform plan -refresh=false
+terraform plan -refresh=false
 ```
 
-Notes:
+How this works without AWS (review mode):
 
-- Each env's `backend.tf` points at a real S3 bucket + DynamoDB lock table, so a plain `terraform init`
-  needs valid AWS credentials and the bucket to exist. `backend_override.tf` is a standard Terraform
-  override file that replaces it with a local backend for review. (`init -backend=false` is not enough:
-  `plan` then fails with "Backend initialization required".) For a real deployment, create the
-  bucket/table once, delete `backend_override.tf`, and run `terraform init` with real credentials.
-- `providers.tf` sets `skip_credentials_validation`, `skip_requesting_account_id` and
-  `skip_metadata_api_check`, and the code uses no live-lookup data sources, so
-  `plan -refresh=false` works offline with dummy credentials. Remove those flags for real deployments.
-- A plan with no state shows every resource as a create, which is what we want for review.
+- **`plan_only = true`** in each `terraform.tfvars`. The provider then uses dummy credentials
+  (`access_key`/`secret_key = "dummy"`) and skips every AWS API call (`skip_credentials_validation`,
+  `skip_requesting_account_id`, `skip_metadata_api_check`). The code uses no live-lookup data sources,
+  so `plan -refresh=false` runs fully offline. No real secret is stored anywhere.
+- **`backend_override.tf`** in each env is a standard Terraform override file that swaps the S3 backend
+  for local state, so a plain `terraform init` does not need AWS. The real remote state configuration
+  stays in `backend.tf` (one S3 bucket + DynamoDB lock table per env).
+- A plan with no state shows every resource as a create (dev: 37, prod: 40), which is what we want for review.
+
+To deploy for real: create the S3 bucket and lock table once, delete `backend_override.tf`, set
+`plan_only = false`, provide real credentials (profile, env vars or an OIDC role), then run `terraform init`.
 
 ## Part 3: GitHub Actions (optional part, included)
 
 `.github/workflows/terraform-plan.yml` runs on pull requests touching `infra/**`, once per environment
 (matrix: dev, prod):
-`fmt -check` -> local backend override -> `init` -> `validate` -> `plan -refresh=false`.
+`fmt -check` -> `init` -> `validate` -> `plan -refresh=false`, with no AWS credentials (review mode, see above).
 The plan is published three ways: visible in the job log, uploaded as the `tfplan-<env>` artifact, and
 posted/updated as a PR comment (one sticky comment per environment).
 

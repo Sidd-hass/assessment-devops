@@ -1,5 +1,6 @@
 environment = "prod"
 region      = "ap-south-1"
+plan_only   = true # review mode, see providers.tf. Set false (and delete backend_override.tf) to deploy
 
 # network
 vpc_cidr           = "10.20.0.0/16"

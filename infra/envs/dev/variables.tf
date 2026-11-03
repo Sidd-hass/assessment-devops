@@ -11,6 +11,12 @@ variable "region" {
   type = string
 }
 
+variable "plan_only" {
+  description = "true = review mode: dummy AWS credentials, no AWS API calls (plan -refresh=false only). false = real deployment."
+  type        = bool
+  default     = false
+}
+
 # ---- network ----
 variable "vpc_cidr" {
   type = string
