@@ -22,8 +22,8 @@ jobs:
       run:
         working-directory: infra/envs/${{ matrix.env }}
     env:
-      # Dummy credentials: the plan is run with -refresh=false, so AWS is never called.
-      # For real plans, replace with OIDC (aws-actions/configure-aws-credentials) and drop -backend=false.
+      # Dummy credentials: the plan is run with -refresh=false against a local backend, so AWS is never called.
+      # For real plans, replace with OIDC (aws-actions/configure-aws-credentials) and drop the backend override step.
       AWS_ACCESS_KEY_ID: dummy
       AWS_SECRET_ACCESS_KEY: dummy
       AWS_DEFAULT_REGION: ap-south-1
@@ -39,8 +39,13 @@ jobs:
         run: terraform fmt -check -recursive -diff
         working-directory: infra
 
+      # The S3 backend in backend.tf needs real AWS credentials, and `plan` refuses to run after
+      # `init -backend=false` when a backend block exists. Override it with a local backend for plan-only review.
+      - name: Use local backend (plan-only)
+        run: printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+
       - name: terraform init
-        run: terraform init -backend=false -input=false
+        run: terraform init -input=false
 
       - name: terraform validate
         run: terraform validate -no-color

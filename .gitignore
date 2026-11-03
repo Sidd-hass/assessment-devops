@@ -6,3 +6,4 @@ backups/*.dump
 tfplan
 plan.txt
 crash.log
+backend_override.tf

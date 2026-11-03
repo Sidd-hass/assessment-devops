@@ -70,15 +70,20 @@ cd infra
 terraform fmt -check -recursive
 
 cd envs/dev          # repeat for envs/prod
-terraform init -backend=false
+# plan-only: swap the S3 backend for a local one (file is git-ignored)
+printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+terraform init
 terraform validate
 AWS_ACCESS_KEY_ID=dummy AWS_SECRET_ACCESS_KEY=dummy terraform plan -refresh=false
 ```
 
 Notes:
 
-- `-backend=false` is used because the S3 backend buckets are not real. In a real deployment, create the
-  bucket/table once and run a plain `terraform init`.
+- Each env's `backend.tf` points at a real S3 bucket + DynamoDB lock table, so a plain `terraform init`
+  needs valid AWS credentials and the bucket to exist. `backend_override.tf` is a standard Terraform
+  override file that replaces it with a local backend for review. (`init -backend=false` is not enough:
+  `plan` then fails with "Backend initialization required".) For a real deployment, create the
+  bucket/table once, delete `backend_override.tf`, and run `terraform init` with real credentials.
 - `providers.tf` sets `skip_credentials_validation`, `skip_requesting_account_id` and
   `skip_metadata_api_check`, and the code uses no live-lookup data sources, so
   `plan -refresh=false` works offline with dummy credentials. Remove those flags for real deployments.
@@ -88,7 +93,7 @@ Notes:
 
 `.github/workflows/terraform-plan.yml` runs on pull requests touching `infra/**`, once per environment
 (matrix: dev, prod):
-`fmt -check` -> `init -backend=false` -> `validate` -> `plan -refresh=false`.
+`fmt -check` -> local backend override -> `init` -> `validate` -> `plan -refresh=false`.
 The plan is published three ways: visible in the job log, uploaded as the `tfplan-<env>` artifact, and
 posted/updated as a PR comment (one sticky comment per environment).
 
@@ -118,7 +123,8 @@ docker compose exec db psql -U app -d hotel -c \
           COUNT(DISTINCT org_id) AS orgs, COUNT(DISTINCT status) AS statuses FROM hotel_bookings;"
 ```
 
-Expected: 300 bookings, 5 organizations, 4 statuses, 5 cities, and events for roughly 70% of bookings.
+Expected: 300 bookings, 5 organizations, 4 statuses, 6 cities (delhi weighted highest, about a third),
+and roughly 400 events covering about 87% of bookings.
 Re-seed any time with `./scripts/seed.sh` (it truncates first).
 
 ### Index choice
@@ -158,8 +164,9 @@ reporting query.
 
 ### Seeing the index work
 
-With only 300 rows the planner can legitimately prefer a sequential scan (the whole table fits in a page
-or two). To see the index used, add volume and look at the plan:
+`./scripts/explain.sh` already shows an Index Only Scan on the 300-row seed, but at that size the planner
+could just as well pick a sequential scan (the whole table fits in a few pages). To see the index matter,
+add volume and look at the plan:
 
 ```bash
 docker compose exec -T db psql -U app -d hotel < db/seed/seed_large.sql   # +200k rows, runs VACUUM ANALYZE
